@@ -533,8 +533,8 @@ void drawLine(float x1, float y1) {
   }
 
   //  Convert coordinates to steps
-  x1 = (int)(x1 * StepsPerMillimeterX);
-  y1 = (int)(y1 * StepsPerMillimeterY);
+  x1 = (x1 * StepsPerMillimeterX);
+  y1 = (y1 * StepsPerMillimeterY);
   float x0 = Xpos;
   float y0 = Ypos;
 
