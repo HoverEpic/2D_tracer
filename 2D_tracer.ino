@@ -1,8 +1,9 @@
 /*
- * Project from
- * https://www.youtube.com/watch?v=opZ9RgmOIpc
+   Project from
+   https://www.youtube.com/watch?v=opZ9RgmOIpc
 */
 #include <Adafruit_MotorShield.h>
+#include "ramps.h"
 
 #define LINE_BUFFER_LENGTH 512
 
@@ -14,30 +15,31 @@
 const int serialSpeed = 9600;
 
 // Stepper config
-char STEP = MICROSTEP;
+boolean reversedX = true;
+boolean reversedY = true;
 
 // Motor steps to go 1 millimeter.
-float StepsPerMillimeterX = 73.0;
-float StepsPerMillimeterY = 72.0;
+float StepsPerMillimeterX = 1500; //TODO CHANGE
+float StepsPerMillimeterY = 380;
 
 // Arcs are split into many line segments.  How long are the segments?
 float MM_PER_SEGMENT = 2;
 
 //fan pin (9 => bottom servo pin)
-const int fan_pin = 9;
+const int fan_pin = 9; //TODO CHANGE
 
 //laser pin (10 => top servo pin)
-const int laser_pin = 10;
-
-// Should be right for DVD steppers, but is not too important here
-const int stepsPerRevolution = 48;
+const int laser_pin = 10; //TODO CHANGE
 
 // do power the fan when laser on?
 // Warning : the fan will not be turned down on finish.
 boolean power_fan_when_lazer_on = true;
 
+// relative state, switch with G90/G91 Absolute or relative positionning
+boolean relativeMove = false;
+
 // Set to true to get debug output.
-boolean verbose = false;
+boolean verbose = true;
 
 /*
    Setup section
@@ -45,9 +47,8 @@ boolean verbose = false;
 
 // Initialize steppers for X- and Y-axis for Adafruit motor shield v2
 // Invert X & Y as we are moving supports, not the piece
-Adafruit_MotorShield AFMS = Adafruit_MotorShield();
-Adafruit_StepperMotor *myStepperX = AFMS.getStepper(stepsPerRevolution, 1);
-Adafruit_StepperMotor *myStepperY = AFMS.getStepper(stepsPerRevolution, 2);
+Motor motorX = Motor(38, 54, 55, 3, 2);
+Motor motorY = Motor(56, 60, 61, 14, 15);
 
 /* Structures, global variables    */
 struct point {
@@ -66,13 +67,13 @@ int LineDelay = 0;
 
 // Drawing robot limits, in mm
 float Xmin = 0;
-float Xmax = 37;
+float Xmax = 300;
 float Ymin = 0;
-float Ymax = 37;
+float Ymax = 300;
 
 // laser power, 0 to 255 value, not a percent
 int laser_min = 0;
-int laser_max = 20; 
+int laser_max = 20;
 // 20-30 engrave wood
 
 // fan power
@@ -93,7 +94,11 @@ void setup() {
 
   Serial.begin(serialSpeed);
 
-  AFMS.begin();
+  motorX.reverse(reversedX);
+  motorY.reverse(reversedY);
+
+  motorX.enable();
+  motorY.enable();
 
   //Declaring motor pin as output and set maximum
   pinMode(fan_pin, OUTPUT);
@@ -105,9 +110,11 @@ void setup() {
 
   delay(100);
 
-  // Decrease if necessary //!\\ not working
-  myStepperX->setSpeed(255);
-  myStepperY->setSpeed(255);
+  // Decrease if necessary //TODO config
+//  motorX.setSpeed(500); //TODO IMPLEMENTS
+//  motorY.setSpeed(500); //TODO IMPLEMENTS
+  motorX.setDelay(25);
+  motorY.setDelay(100);
 
   //  Welcome message
   Serial.println("Starting DIY laser engraver v0.1");
@@ -226,6 +233,9 @@ boolean processIncomingLine( char* line, int charNB ) {
   float optX = atof(strchr( line, 'X' ) + 1);                 //A coordinate on the X axis
   boolean optY_present = strchr( line + currentIndex, 'Y' ) != NULL;
   float optY = atof(strchr( line, 'Y' ) + 1);                 //A coordinate on the Y axis
+  
+  boolean optF_present = strchr( line + currentIndex, 'F' ) != NULL;
+  float optF = atof(strchr( line, 'F' ) + 1);                 //The maximum movement rate
 
   float optI = atof(strchr( line, 'I' ) + 1);                 //An offset from the current X position to use as the arc center
   float optJ = atof(strchr( line + currentIndex, 'J' ) + 1);  //An offset from the current Y position to use as the arc center
@@ -234,6 +244,34 @@ boolean processIncomingLine( char* line, int charNB ) {
   boolean optS_present = strchr( line + currentIndex, 'S' ) != NULL;
   int optS = atoi(strchr( line + currentIndex, 'S' ) + 1);    //Amount of time to dwell in sec, Spindle speed or laser power
   int optD = atoi(strchr( line + currentIndex, 'D' ) + 1);    //Detailed things : http://marlinfw.org/docs/gcode/M114.html
+
+//  if (optLetter == 'T') { // test for calculating StepsPerMillimeter
+//    int lenght = atoi(strchr( line, 'T' ) + 1);
+//    Serial.print("Test mode, doing ");
+//    Serial.print(lenght);
+//    Serial.println(" steps.");
+//    if (optX_present && !optY_present) {
+//      for (int i = 0; i < lenght; ++i) {
+//        motorX.onestep(1);
+//      }
+//    } else if (optY_present && !optX_present) {
+//      for (int i = 0; i < lenght; ++i) {
+//        motorY.onestep(1);
+//      }
+//    } else {
+//      Serial.println("No axis defined, commande usage : T100 X/Y");
+//      return true;
+//    }
+//
+//    Serial.println("Measure the size of the traveled distance (dist) in mm");
+//    Serial.print("dist / ");
+//    Serial.print(lenght);
+//    Serial.print(" / 100 = StepsPerMillimeter");
+//    Serial.print(optX_present ? "X" : "");
+//    Serial.print(optY_present ? "Y" : "");
+//    Serial.println("");
+//    return true;
+//  }
 
   if (false) // debug command line
   {
@@ -284,6 +322,12 @@ boolean processIncomingLine( char* line, int charNB ) {
         case 28:                      // hack for homing
           G0(0, 0);
           return true;
+        case 90:                      // G90 - Absolute Positioning
+          G90();
+          return true;
+        case 91:                      // G91 - Relative Positioning
+          G91();
+          return true;
         case 92:                      // G92 Xx Yy - Set Position
           G92(optX, optY);
           return true;
@@ -300,6 +344,9 @@ boolean processIncomingLine( char* line, int charNB ) {
           return true;
         case 5:                       // M5 - Spindle / Laser Off
           M5();
+          return true;
+        case 17:                      // M17 - Enable Steppers
+          M17();
           return true;
         case 18:                      // M18 - Disable steppers
         case 84:                      // M84 - Disable steppers
@@ -340,6 +387,10 @@ boolean processIncomingLine( char* line, int charNB ) {
 **********************************/
 //G0, G1 - Linear Move
 void G0(float x, float y) {
+  //  if (relativeMove) {
+  //    x = actuatorPos.x + x;
+  //    y = actuatorPos.y + y;
+  //  }
   G0(x, true, y, true);
 }
 void G0(float x, boolean moveX, float y, boolean moveY) {
@@ -357,7 +408,6 @@ void G0(float x, boolean moveX, float y, boolean moveY) {
   else {
     newPos.x = x;
     newPos.y = y;
-    y = '\0';
   }
   drawLine(newPos.x, newPos.y);
   actuatorPos.x = newPos.x;
@@ -365,6 +415,10 @@ void G0(float x, boolean moveX, float y, boolean moveY) {
 }
 // G2,G3 http://marlinfw.org/docs/gcode/G002-G003.html (offset or radius)
 void G2(float endX, float endY, float xCenterOffset, float yCenterOffset, float radius, boolean counterClockwise) {
+  //  if (relativeMove) {
+  //    endX = actuatorPos.x + endX;
+  //    endY = actuatorPos.y + endY;
+  //  }
   //  example : G3 X3 Y3 I5 J5
   // -X : endX
   // -Y : endY
@@ -399,6 +453,14 @@ void G4(int msec, int sec) {
   } else {
     //all actions finished
   }
+}
+// G90 - Absolute Positioning
+void G90() {
+  relativeMove = false;
+}
+// G91 - Relative Positioning
+void G91() {
+  relativeMove = true;
 }
 // G92 - Set Position (without moving)
 void G92(int x, int y) {
@@ -438,14 +500,16 @@ void M17 () {
   if (verbose) {
     Serial.println( "Enable Steppers" );
   }
+  motorX.enable();
+  motorY.enable();
 }
 // M18/M84 Disable steppers
 void M18 () {
   if (verbose) {
     Serial.println( "Disable steppers" );
   }
-  myStepperX->release();
-  myStepperY->release();
+  motorX.disable();
+  motorY.disable();
 }
 // M106 - Set Fan Speed
 void M106 (int power) {
@@ -465,8 +529,8 @@ void M112 () {
   }
   laser(0);
   fan(0);
-  myStepperX->release();
-  myStepperY->release();
+  motorX.disable();
+  motorY.disable();
 }
 // M114 Get Current Position
 void M114 () {
@@ -493,11 +557,11 @@ void drawLine(float x1, float y1) {
 
   if (verbose)
   {
-    Serial.print("fx1, fy1: ");
+    Serial.print("Move to x1, y1: ");
     Serial.print(x1);
     Serial.print(",");
     Serial.print(y1);
-    Serial.println("");
+    Serial.println(" (mm)");
   }
 
   //  Bring instructions within limits
@@ -516,25 +580,16 @@ void drawLine(float x1, float y1) {
 
   if (verbose)
   {
-    Serial.print("Xpos, Ypos: ");
+    Serial.print("Actual Xpos, Ypos: ");
     Serial.print(Xpos);
     Serial.print(",");
     Serial.print(Ypos);
-    Serial.println("");
-  }
-
-  if (verbose)
-  {
-    Serial.print("x1, y1: ");
-    Serial.print(x1);
-    Serial.print(",");
-    Serial.print(y1);
-    Serial.println("");
+    Serial.println(" (steps)");
   }
 
   //  Convert coordinates to steps
-  x1 = (int)(x1 * StepsPerMillimeterX);
-  y1 = (int)(y1 * StepsPerMillimeterY);
+  x1 = (x1 * StepsPerMillimeterX);
+  y1 = (y1 * StepsPerMillimeterY);
   float x0 = Xpos;
   float y0 = Ypos;
 
@@ -549,22 +604,22 @@ void drawLine(float x1, float y1) {
 
   if (dx > dy) {
     for (i = 0; i < dx; ++i) {
-      myStepperX->onestep(sx, STEP);
+      motorX.onestep(sx);
       over += dy;
       if (over >= dx) {
         over -= dx;
-        myStepperY->onestep(sy, STEP);
+        motorY.onestep(sy);
       }
       delay(StepDelay);
     }
   }
   else {
     for (i = 0; i < dy; ++i) {
-      myStepperY->onestep(sy, STEP);
+      motorY.onestep(sy);
       over += dx;
       if (over >= dy) {
         over -= dy;
-        myStepperX->onestep(sx, STEP);
+        motorX.onestep(sx);
       }
       delay(StepDelay);
     }
@@ -572,20 +627,11 @@ void drawLine(float x1, float y1) {
 
   if (verbose)
   {
-    Serial.print("dx, dy:");
-    Serial.print(dx);
+    Serial.print("New pos (");
+    Serial.print(x1);
     Serial.print(",");
-    Serial.print(dy);
-    Serial.println("");
-  }
-
-  if (verbose)
-  {
-    Serial.print("Going to (");
-    Serial.print(x0);
-    Serial.print(",");
-    Serial.print(y0);
-    Serial.println(")");
+    Serial.print(y1);
+    Serial.println(") steps");
   }
 
   //  Delay before any next lines are submitted
