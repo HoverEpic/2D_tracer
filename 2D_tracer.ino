@@ -19,17 +19,17 @@ boolean reversedX = true;
 boolean reversedY = true;
 
 // Motor steps to go 1 millimeter.
-float StepsPerMillimeterX = 1500; //TODO CHANGE
+float StepsPerMillimeterX = 1500;
 float StepsPerMillimeterY = 380;
 
-// Arcs are split into many line segments.  How long are the segments?
-float MM_PER_SEGMENT = 2;
+// Arcs are split into many line segments.  How long are the segments (mm)?
+float MM_PER_SEGMENT = 0.1;
 
-//fan pin (9 => bottom servo pin)
-const int fan_pin = 9; //TODO CHANGE
+//fan pin D10 header
+const int fan_pin = 10;
 
-//laser pin (10 => top servo pin)
-const int laser_pin = 10; //TODO CHANGE
+//laser pin servo 1 pwm
+const int laser_pin = 11;
 
 // do power the fan when laser on?
 // Warning : the fan will not be turned down on finish.
@@ -39,7 +39,7 @@ boolean power_fan_when_lazer_on = true;
 boolean relativeMove = false;
 
 // Set to true to get debug output.
-boolean verbose = true;
+boolean verbose = false;
 
 /*
    Setup section
@@ -73,8 +73,9 @@ float Ymax = 300;
 
 // laser power, 0 to 255 value, not a percent
 int laser_min = 0;
-int laser_max = 20;
+int laser_max = 255;
 // 20-30 engrave wood
+// 10-15 engrave leather
 
 // fan power
 int fan_min = 0;
@@ -111,10 +112,10 @@ void setup() {
   delay(100);
 
   // Decrease if necessary //TODO config
-//  motorX.setSpeed(500); //TODO IMPLEMENTS
-//  motorY.setSpeed(500); //TODO IMPLEMENTS
+//  motorX.setSpeed(500); //TODO IMPLEMENTS mm/s
+//  motorY.setSpeed(500); //TODO IMPLEMENTS mm/s
   motorX.setDelay(25);
-  motorY.setDelay(100);
+  motorY.setDelay(125);
 
   //  Welcome message
   Serial.println("Starting DIY laser engraver v0.1");
@@ -420,15 +421,16 @@ void G2(float endX, float endY, float xCenterOffset, float yCenterOffset, float 
   //    endY = actuatorPos.y + endY;
   //  }
   //  example : G3 X3 Y3 I5 J5
-  // -X : endX
-  // -Y : endY
-  // -I : centerX
-  // -J : centerY
+  // -X : endX absolute position
+  // -Y : endY absolute position
+  // -I : centerX offset relative from position
+  // -J : centerY offset relative from position
 
   //  example : G3 X3 Y3 R2
   // -X : endX
   // -Y : endY
   // -R : radius
+
   arc(actuatorPos.x + xCenterOffset, actuatorPos.y + yCenterOffset, endX, endY, radius, counterClockwise ? 1 : -1);
 }
 
@@ -538,12 +540,12 @@ void M114 () {
   Serial.print(actuatorPos.x);
   Serial.print(" Y: ");
   Serial.print(actuatorPos.y);
-  Serial.println("");
+  Serial.println(" mm");
   Serial.print("X2: ");
   Serial.print(Xpos);
   Serial.print(" Y2: ");
   Serial.print(Ypos);
-  Serial.println("");
+  Serial.println(" steps");
 }
 
 
@@ -588,8 +590,9 @@ void drawLine(float x1, float y1) {
   }
 
   //  Convert coordinates to steps
-  x1 = (x1 * StepsPerMillimeterX);
-  y1 = (y1 * StepsPerMillimeterY);
+  x1 = floor(x1 * StepsPerMillimeterX);
+  y1 = floor(y1 * StepsPerMillimeterY);
+  // store current position
   float x0 = Xpos;
   float y0 = Ypos;
 
@@ -646,19 +649,24 @@ void drawLine(float x1, float y1) {
 // This method assumes the limits have already been checked.
 // This method assumes the start and end radius match.
 // This method assumes arcs are not >180 degrees (PI radians)
-// cx/cy - center of circle
-// x/y - end position
+// centerX/centerY - center of circle (absolute, in mm)
+// endX/endY - end position (absolute, in mm)
+// radius - radius of arc (not provided if centerX/centerY are)
 // dir - ARC_CW or ARC_CCW to control direction of arc
-void arc(float cx, float cy, float x, float y, float r, float dir) {
+
+//              I              J              X           Y
+void arc(float centerX, float centerY, float endX, float endY, float radius, float dir) {
 
   // get radius
-  float dx = actuatorPos.x - cx;
-  float dy = actuatorPos.y - cy;
-  float radius = sqrt(dx * dx + dy * dy);
+  float relativeCenterX = actuatorPos.x - centerX;
+  float relativeCenterY = actuatorPos.y - centerY;
+
+  if (radius == 0) //if radius is not provided, calculate it with Pythagorean theorem!
+    radius = sqrt(relativeCenterX * relativeCenterX + relativeCenterY * relativeCenterY);
 
   // find angle of arc (sweep)
-  float angle1 = atan3(dy, dx);
-  float angle2 = atan3(y - cy, x - cx);
+  float angle1 = atan3(relativeCenterY, relativeCenterX);
+  float angle2 = atan3(endY - centerY, endX - centerX);
   float theta = angle2 - angle1;
 
   if (dir > 0 && theta < 0)
@@ -671,20 +679,18 @@ void arc(float cx, float cy, float x, float y, float r, float dir) {
   // get length of arc
   float len = abs(theta) * radius;
 
-  int i, segments = ceil( len * MM_PER_SEGMENT );
-
-  float nx, ny, angle3, scale;
+  int segmentIndex, segments = ceil( len / MM_PER_SEGMENT );
 
   if (verbose) {
     Serial.println("------------start arc------------");
     Serial.print("center = (");
-    Serial.print(cx);
+    Serial.print(centerX);
     Serial.print(",");
-    Serial.print(cy);
+    Serial.print(centerY);
     Serial.print("), start = (");
-    Serial.print(dx);
+    Serial.print(actuatorPos.x);
     Serial.print(",");
-    Serial.print(dy);
+    Serial.print(actuatorPos.y);
     Serial.print("), radius = ");
     Serial.print(radius);
     Serial.print(", theta = ");
@@ -692,50 +698,54 @@ void arc(float cx, float cy, float x, float y, float r, float dir) {
     Serial.print(", length = ");
     Serial.print(len);
     Serial.print(", segments = ");
-    Serial.println(segments);
+    Serial.print(segments);
+    Serial.println("");
   }
 
-  for (i = 0; i < segments; ++i) {
-    // interpolate around the arc
-    scale = ((float)i) / ((float)segments);
+  float segmentX, segmentY, angle3, scale;
 
+  for (segmentIndex = 0; segmentIndex < segments; ++segmentIndex) {
+    // interpolate around the arc
+    scale = ((float)segmentIndex) / ((float)segments);
     angle3 = ( theta * scale ) + angle1;
-    nx = cx + cos(angle3) * radius;
-    ny = cy + sin(angle3) * radius;
+
+    // find the intermediate position
+    segmentX = centerX + cos(angle3) * radius;
+    segmentY = centerY + sin(angle3) * radius;
 
     if (verbose) {
-      if (nx > Xmax || ny > Ymax || nx < Xmin || ny < Ymin) {
+      if (segmentX > Xmax || segmentY > Ymax || segmentX < Xmin || segmentY < Ymin) {
         Serial.println("------------TOO FAR------------");
         Serial.print("Going to (");
-        Serial.print(nx);
+        Serial.print(segmentX);
         Serial.print(",");
-        Serial.print(ny);
+        Serial.print(segmentY);
         Serial.println(")");
         return;
       } else {
         Serial.println("------------segment------------");
-        Serial.print(i);
-        Serial.print("------------");
+        Serial.print("Index : ");
+        Serial.println(segmentIndex);
         Serial.print("Going to (");
-        Serial.print(nx);
+        Serial.print(segmentX);
         Serial.print(",");
-        Serial.print(ny);
+        Serial.print(segmentY);
         Serial.println(")");
       }
     }
-    // send it to the planner
-    G0(nx, ny);
+    // trace segment
+    G0(segmentX, segmentY);
   }
   if (verbose) {
     Serial.println("------------end arc------------");
     Serial.print("Going to (");
-    Serial.print(x);
+    Serial.print(endX);
     Serial.print(",");
-    Serial.print(y);
+    Serial.print(endY);
     Serial.println(")");
     return;
   }
-  G0(x, y);
+  G0(endX, endY);
 }
 
 // Laser control
@@ -766,6 +776,7 @@ void fan(int power) {
 // returns angle of dy/dx as a value from 0...2PI
 float atan3(float dy, float dx) {
   float a = atan2(dy, dx);
-  if (a < 0) a = (PI * 2.0) + a;
+  if (a < 0)
+    a = (PI * 2.0) + a;
   return a;
 }
