@@ -431,7 +431,10 @@ void G2(float endX, float endY, float xCenterOffset, float yCenterOffset, float 
   // -Y : endY
   // -R : radius
 
-  arc(actuatorPos.x + xCenterOffset, actuatorPos.y + yCenterOffset, endX, endY, radius, counterClockwise ? 1 : -1);
+  if (radius == 0) // special case for radius => DO NOT USE ARC
+    arc(actuatorPos.x + xCenterOffset, actuatorPos.y + yCenterOffset, endX, endY, radius, counterClockwise ? 1 : -1);
+  else
+    G0(endX, endY);
 }
 
 // G4 - Dwell
@@ -661,7 +664,7 @@ void arc(float centerX, float centerY, float endX, float endY, float radius, flo
   float relativeCenterX = actuatorPos.x - centerX;
   float relativeCenterY = actuatorPos.y - centerY;
 
-  if (radius == 0) //if radius is not provided, calculate it with Pythagorean theorem!
+  if (radius == 0) //if radius is not provided, calculate it with Pythagorean theorem! /!\ RADIUS NEVER PROVIDED HERE
     radius = sqrt(relativeCenterX * relativeCenterX + relativeCenterY * relativeCenterY);
 
   // find angle of arc (sweep)
