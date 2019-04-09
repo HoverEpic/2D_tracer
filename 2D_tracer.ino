@@ -20,8 +20,8 @@ char STEP = MICROSTEP;
 float StepsPerMillimeterX = 72.0;
 float StepsPerMillimeterY = 72.0;
 
-// Arcs are split into many line segments.  How long are the segments?
-float MM_PER_SEGMENT = 2;
+// Arcs are split into many line segments.  How long are the segments (mm)?
+float MM_PER_SEGMENT = 0.1;
 
 //fan pin (9 => bottom servo pin)
 const int fan_pin = 9;
@@ -72,8 +72,9 @@ float Ymax = 37;
 
 // laser power, 0 to 255 value, not a percent
 int laser_min = 0;
-int laser_max = 30;
+int laser_max = 255;
 // 20-30 engrave wood
+// 10-15 engrave leather
 
 // fan power
 int fan_min = 0;
@@ -607,7 +608,7 @@ void drawLine(float x1, float y1) {
 // radius - radius of arc (not provided if centerX/centerY are)
 // dir - ARC_CW or ARC_CCW to control direction of arc
 
-//              X           Y             I              J
+//              I              J              X           Y
 void arc(float centerX, float centerY, float endX, float endY, float radius, float dir) {
 
   // get radius
@@ -632,7 +633,7 @@ void arc(float centerX, float centerY, float endX, float endY, float radius, flo
   // get length of arc
   float len = abs(theta) * radius;
 
-  int segmentIndex, segments = ceil( len * MM_PER_SEGMENT );
+  int segmentIndex, segments = ceil( len / MM_PER_SEGMENT );
 
   if (verbose) {
     Serial.println("------------start arc------------");
