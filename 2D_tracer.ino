@@ -25,8 +25,8 @@ float StepsPerMillimeterY = 380;
 // Arcs are split into many line segments.  How long are the segments (mm)?
 float MM_PER_SEGMENT = 0.1;
 
-//fan pin D10 header
-const int fan_pin = 10;
+//fan pin D8 header
+const int fan_pin = 8;
 
 //laser pin servo 1 pwm
 const int laser_pin = 11;
