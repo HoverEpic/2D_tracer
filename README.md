@@ -2,10 +2,10 @@
 Firmware for my DIY laser engraver
 
 Specs :
-- 37x37mm working area
-- Adafruit motor shield v2.3
+- 300x300mm working area
+- RAMPS 1.4
 - 2.3W 445nm laser
-- ATX power supply
+- 12V 4A power supply
 - no end stops
 
 G-Codes implemented :
