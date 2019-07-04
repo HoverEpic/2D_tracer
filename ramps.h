@@ -11,8 +11,8 @@ struct Motor {
   int stepsPerRev = 200;
   // delay between moves, default 100
   int delayMicro = 100;
-  // revolution per minute
-  int revPerMin;
+  // Steps per millimeter, depends on transmition
+  float steps_per_millimeter = 50;
   // case of reversed connections
   boolean reversed = false;
   // pin to listen endstops
@@ -48,19 +48,23 @@ struct Motor {
     reversed = p_Reversed;
   }
 
-  void setSpeed(int rpm) {
-    revPerMin = rpm;
-    // calculate step per second
-    // calculate rev per second
-    // calculate rev per minute
+  void setStepsPerMillimeter(float steps_per_millimeter) {
+    this->steps_per_millimeter = steps_per_millimeter;
   }
 
+  // mm/min
+  void setSpeed(int mm_per_minute) {
+    delayMicro = (1000 / (steps_per_millimeter / 2000 / 60))/mm_per_minute;
+  }
+
+  // µs
   void setDelay(int delay) {
     delayMicro = delay;
   }
 
-  int getSpeed() {
-    return revPerMin;
+  // mm/min
+  float getSpeed() {
+    return (1000 / (steps_per_millimeter / 2000 / 60))/delayMicro;
   }
 
   boolean isMinEndStopped() {

@@ -32,8 +32,11 @@ const int fan_pin = 8;
 const int laser_pin = 11;
 
 // do power the fan when laser on?
-// Warning : the fan will not be turned down on finish.
-boolean power_fan_when_lazer_on = true;
+boolean power_fan_when_laser_on = true;
+int fan_power_when_laser_on = 255;
+
+// wait time if laser off to turn off fan (seconds), if < 0, no timeout
+int turn_off_fan_timeout = 3;
 
 // relative state, switch with G90/G91 Absolute or relative positionning
 boolean relativeMove = false;
@@ -44,6 +47,9 @@ boolean verbose = false;
 /*
    Setup section
 */
+
+// timestamp of last laser off, used for fan tiemout
+int last_laser_off = millis();
 
 // Initialize steppers for X- and Y-axis for Adafruit motor shield v2
 // Invert X & Y as we are moving supports, not the piece
@@ -85,8 +91,9 @@ int fan_max = 255;
 float Xpos = 0;
 float Ypos = 0;
 
+// set default power fan and laser
 int laser_power = laser_min;
-int fan_power = fan_max;
+int fan_power = fan_min;
 
 /*
    Initialisations
@@ -101,21 +108,25 @@ void setup() {
   motorX.enable();
   motorY.enable();
 
-  //Declaring motor pin as output and set maximum
+  //Declaring motor pin as output and set default
   pinMode(fan_pin, OUTPUT);
   fan(fan_power);
 
-  //Declaring laser pin as output and set minumum
+  //Declaring laser pin as output and set default
   pinMode(laser_pin, OUTPUT);
   laser(laser_power);
 
   delay(100);
 
   // Decrease if necessary //TODO config
-//  motorX.setSpeed(500); //TODO IMPLEMENTS mm/s
-//  motorY.setSpeed(500); //TODO IMPLEMENTS mm/s
+  //  motorX.setSpeed(500); //TODO IMPLEMENTS mm/s
+  //  motorY.setSpeed(500); //TODO IMPLEMENTS mm/s
   motorX.setDelay(25);
   motorY.setDelay(125);
+
+  // Apply config to motors, used for calculate the speed in mm/minute TODO IMPLEMENT in motor
+  motorX.setStepsPerMillimeter(StepsPerMillimeterX);
+  motorY.setStepsPerMillimeter(StepsPerMillimeterY);
 
   //  Welcome message
   Serial.println("Starting DIY laser engraver v0.1");
@@ -153,6 +164,12 @@ void loop()
   lineIsComment = false;
 
   while (1) {     //!\\ Warning : the loop is closed
+
+    // Turn off the fan if the timeout is true
+    if (laser_power == 0 && fan_power != 0 && turn_off_fan_timeout > 0 && millis() > last_laser_off + (turn_off_fan_timeout * 1000)) {
+      Serial.println("fan timeout");
+      fan(0);
+    }
 
     // Serial reception - Mostly from Grbl, added semicolon support
     while ( Serial.available() > 0 ) {
@@ -234,7 +251,7 @@ boolean processIncomingLine( char* line, int charNB ) {
   float optX = atof(strchr( line, 'X' ) + 1);                 //A coordinate on the X axis
   boolean optY_present = strchr( line + currentIndex, 'Y' ) != NULL;
   float optY = atof(strchr( line, 'Y' ) + 1);                 //A coordinate on the Y axis
-  
+
   boolean optF_present = strchr( line + currentIndex, 'F' ) != NULL;
   float optF = atof(strchr( line, 'F' ) + 1);                 //The maximum movement rate
 
@@ -246,33 +263,33 @@ boolean processIncomingLine( char* line, int charNB ) {
   int optS = atoi(strchr( line + currentIndex, 'S' ) + 1);    //Amount of time to dwell in sec, Spindle speed or laser power
   int optD = atoi(strchr( line + currentIndex, 'D' ) + 1);    //Detailed things : http://marlinfw.org/docs/gcode/M114.html
 
-//  if (optLetter == 'T') { // test for calculating StepsPerMillimeter
-//    int lenght = atoi(strchr( line, 'T' ) + 1);
-//    Serial.print("Test mode, doing ");
-//    Serial.print(lenght);
-//    Serial.println(" steps.");
-//    if (optX_present && !optY_present) {
-//      for (int i = 0; i < lenght; ++i) {
-//        motorX.onestep(1);
-//      }
-//    } else if (optY_present && !optX_present) {
-//      for (int i = 0; i < lenght; ++i) {
-//        motorY.onestep(1);
-//      }
-//    } else {
-//      Serial.println("No axis defined, commande usage : T100 X/Y");
-//      return true;
-//    }
-//
-//    Serial.println("Measure the size of the traveled distance (dist) in mm");
-//    Serial.print("dist / ");
-//    Serial.print(lenght);
-//    Serial.print(" / 100 = StepsPerMillimeter");
-//    Serial.print(optX_present ? "X" : "");
-//    Serial.print(optY_present ? "Y" : "");
-//    Serial.println("");
-//    return true;
-//  }
+  //  if (optLetter == 'T') { // test for calculating StepsPerMillimeter
+  //    int lenght = atoi(strchr( line, 'T' ) + 1);
+  //    Serial.print("Test mode, doing ");
+  //    Serial.print(lenght);
+  //    Serial.println(" steps.");
+  //    if (optX_present && !optY_present) {
+  //      for (int i = 0; i < lenght; ++i) {
+  //        motorX.onestep(1);
+  //      }
+  //    } else if (optY_present && !optX_present) {
+  //      for (int i = 0; i < lenght; ++i) {
+  //        motorY.onestep(1);
+  //      }
+  //    } else {
+  //      Serial.println("No axis defined, commande usage : T100 X/Y");
+  //      return true;
+  //    }
+  //
+  //    Serial.println("Measure the size of the traveled distance (dist) in mm");
+  //    Serial.print("dist / ");
+  //    Serial.print(lenght);
+  //    Serial.print(" / 100 = StepsPerMillimeter");
+  //    Serial.print(optX_present ? "X" : "");
+  //    Serial.print(optY_present ? "Y" : "");
+  //    Serial.println("");
+  //    return true;
+  //  }
 
   if (false) // debug command line
   {
@@ -340,7 +357,7 @@ boolean processIncomingLine( char* line, int charNB ) {
       switch (optCode) {
         case 3:                       // M3 Spow - Spindle CW / Laser On (Constant Laser Power Mode) https://github.com/gnea/grbl/wiki/Grbl-v1.1-Laser-Mode
         case 4:                       // M4 - Dynamic Laser Power Mode
-          if (!optS_present) optS = laser_max; //special case for S non present, set lazer to max
+          if (!optS_present) optS = laser_max; //special case for S non present, set laser to max
           M3(optS);
           return true;
         case 5:                       // M5 - Spindle / Laser Off
@@ -756,9 +773,11 @@ void laser(int power) {
   analogWrite(laser_pin, power);
   if (power > laser_max)
     power = laser_max;
-  if (power_fan_when_lazer_on)
-    fan(fan_max);
+  if (power_fan_when_laser_on && power > 0)
+    fan(fan_power_when_laser_on);
   laser_power = power;
+  if (power == 0)
+    last_laser_off = millis();
   if (verbose) {
     Serial.print("Laser power : ");
     Serial.println(power);
