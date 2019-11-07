@@ -12,15 +12,20 @@
 */
 
 // set the serial speed [2400, 9600, 19200, 38400, 57600, 115200, 250000, 500000, 1000000]
-const int serialSpeed = 9600;
+const int serialSpeed = 19200;
 
 // Stepper config
-boolean reversedX = true;
+boolean reversedX = false;
 boolean reversedY = true;
 
 // Motor steps to go 1 millimeter.
-float StepsPerMillimeterX = 1500;
+float StepsPerMillimeterX = 80;
 float StepsPerMillimeterY = 380;
+
+// Moves speed mm/min
+int defaultSpeed = 3000;
+int minSpeed = 500;
+int maxSpeed = 30000;
 
 // Arcs are split into many line segments.  How long are the segments (mm)?
 float MM_PER_SEGMENT = 0.1;
@@ -80,8 +85,6 @@ float Ymax = 300;
 // laser power, 0 to 255 value, not a percent
 int laser_min = 0;
 int laser_max = 255;
-// 20-30 engrave wood
-// 10-15 engrave leather
 
 // fan power
 int fan_min = 0;
@@ -118,15 +121,13 @@ void setup() {
 
   delay(100);
 
-  // Decrease if necessary //TODO config
-  //  motorX.setSpeed(500); //TODO IMPLEMENTS mm/s
-  //  motorY.setSpeed(500); //TODO IMPLEMENTS mm/s
-  motorX.setDelay(25);
-  motorY.setDelay(125);
-
-  // Apply config to motors, used for calculate the speed in mm/minute TODO IMPLEMENT in motor
+  // Apply config to motors, used for calculate the speed in mm/minute
   motorX.setStepsPerMillimeter(StepsPerMillimeterX);
   motorY.setStepsPerMillimeter(StepsPerMillimeterY);
+
+  // Set move speed
+  motorX.setSpeed(defaultSpeed);
+  motorY.setSpeed(defaultSpeed);
 
   //  Welcome message
   Serial.println("Starting DIY laser engraver v0.1");
@@ -145,6 +146,12 @@ void setup() {
   Serial.print(" / ");
   Serial.print(laser_max);
   Serial.println("");
+  Serial.print("X default speed ");
+  Serial.print(motorX.getSpeed());
+  Serial.println(" mm/min");
+  Serial.print("Y default speed ");
+  Serial.print(motorY.getSpeed());
+  Serial.println(" mm/min");
 }
 
 /*
@@ -167,7 +174,11 @@ void loop()
 
     // Turn off the fan if the timeout is true
     if (laser_power == 0 && fan_power != 0 && turn_off_fan_timeout > 0 && millis() > last_laser_off + (turn_off_fan_timeout * 1000)) {
-      Serial.println("fan timeout");
+      if (verbose) {
+        Serial.print("Laser stopped from ");
+        Serial.print(turn_off_fan_timeout);
+        Serial.println(" s, turning off fan");
+      }
       fan(0);
     }
 
@@ -307,6 +318,8 @@ boolean processIncomingLine( char* line, int charNB ) {
     Serial.println(optX);
     Serial.print("opt Y : ");
     Serial.println(optY);
+    Serial.print("opt F : ");
+    Serial.println(optF);
     Serial.print("opt I : ");
     Serial.println(optI);
     Serial.print("opt J : ");
@@ -319,6 +332,12 @@ boolean processIncomingLine( char* line, int charNB ) {
     Serial.print("opt D : ");
     Serial.println(optS);
   }
+
+  if (optF_present) {
+    motorX.setSpeed(optF);
+    motorY.setSpeed(optF);
+  }
+
 
   switch (optLetter) {                // Select command (G / M)
     case 'G':
@@ -338,7 +357,8 @@ boolean processIncomingLine( char* line, int charNB ) {
           G4(optP, optS);
           return true;
         case 28:                      // hack for homing
-          G0(0, 0);
+          if (optX_present || optY_present) // disable if X & Y not present
+            G0(optX, optX_present, optY, optY_present);
           return true;
         case 90:                      // G90 - Absolute Positioning
           G90();
@@ -347,7 +367,7 @@ boolean processIncomingLine( char* line, int charNB ) {
           G91();
           return true;
         case 92:                      // G92 Xx Yy - Set Position
-          G92(optX, optY);
+          G92(optX_present, optX, optY_present, optY);
           return true;
         default:
           return false;
@@ -405,16 +425,31 @@ boolean processIncomingLine( char* line, int charNB ) {
 **********************************/
 //G0, G1 - Linear Move
 void G0(float x, float y) {
-  //  if (relativeMove) {
-  //    x = actuatorPos.x + x;
-  //    y = actuatorPos.y + y;
-  //  }
   G0(x, true, y, true);
 }
 void G0(float x, boolean moveX, float y, boolean moveY) {
+  // do relativve mode stuff if enable
+  if (relativeMove) {
+    x = actuatorPos.x + x;
+    y = actuatorPos.y + y;
+  }
+  // check limits
+  if (x >= Xmax) {
+    x = Xmax;
+  }
+  if (x <= Xmin) {
+    x = Xmin;
+  }
+  if (y >= Ymax) {
+    y = Ymax;
+  }
+  if (y <= Ymin) {
+    y = Ymin;
+  }
   point newPos;
   newPos.x = 0.0;
   newPos.y = 0.0;
+  //check moves
   if ( moveX && !moveY ) {
     newPos.x = x;
     newPos.y = actuatorPos.y;
@@ -427,16 +462,19 @@ void G0(float x, boolean moveX, float y, boolean moveY) {
     newPos.x = x;
     newPos.y = y;
   }
+  // draw the move
   drawLine(newPos.x, newPos.y);
+  //set new actuator position
   actuatorPos.x = newPos.x;
   actuatorPos.y = newPos.y;
 }
 // G2,G3 http://marlinfw.org/docs/gcode/G002-G003.html (offset or radius)
 void G2(float endX, float endY, float xCenterOffset, float yCenterOffset, float radius, boolean counterClockwise) {
-  //  if (relativeMove) {
-  //    endX = actuatorPos.x + endX;
-  //    endY = actuatorPos.y + endY;
-  //  }
+  // do relativve mode stuff if enable
+  if (relativeMove) {
+    endX = actuatorPos.x + endX;
+    endY = actuatorPos.y + endY;
+  }
   //  example : G3 X3 Y3 I5 J5
   // -X : endX absolute position
   // -Y : endY absolute position
@@ -485,11 +523,15 @@ void G91() {
   relativeMove = true;
 }
 // G92 - Set Position (without moving)
-void G92(int x, int y) {
-  actuatorPos.x = x;
-  actuatorPos.y = y;
-  Xpos = (int)(x * StepsPerMillimeterX);
-  Ypos = (int)(y * StepsPerMillimeterY);
+void G92(boolean xPresent, int x, boolean yPresent, int y) {
+  if (xPresent) {
+    actuatorPos.x = x;
+    Xpos = (int)(x * StepsPerMillimeterX);
+  }
+  if (yPresent) {
+    actuatorPos.y = y;
+    Ypos = (int)(y * StepsPerMillimeterY);
+  }
   if (verbose) {
     Serial.print("Set Position to X");
     Serial.print(x);
@@ -584,20 +626,6 @@ void drawLine(float x1, float y1) {
     Serial.print(",");
     Serial.print(y1);
     Serial.println(" (mm)");
-  }
-
-  //  Bring instructions within limits
-  if (x1 >= Xmax) {
-    x1 = Xmax;
-  }
-  if (x1 <= Xmin) {
-    x1 = Xmin;
-  }
-  if (y1 >= Ymax) {
-    y1 = Ymax;
-  }
-  if (y1 <= Ymin) {
-    y1 = Ymin;
   }
 
   if (verbose)
@@ -768,13 +796,42 @@ void arc(float centerX, float centerY, float endX, float endY, float radius, flo
   G0(endX, endY);
 }
 
+void speed(int speed) {
+  int tempSpeed = speed;
+  if (speed > maxSpeed) {
+    if (verbose) {
+      Serial.print("Motors move speed too high, decreasing to ");
+      Serial.println(maxSpeed);
+    }
+    tempSpeed = maxSpeed;
+  } else if (speed < minSpeed) {
+    if (verbose) {
+      Serial.print("Motors move speed too low, increasing to ");
+      Serial.println(minSpeed);
+    }
+    tempSpeed = minSpeed;
+  }
+  if (verbose) {
+    Serial.print("Motors move speed : ");
+    Serial.println(tempSpeed);
+  }
+  motorX.setSpeed(tempSpeed);
+  motorY.setSpeed(tempSpeed);
+}
+
 // Laser control
 void laser(int power) {
   analogWrite(laser_pin, power);
-  if (power > laser_max)
+  if (power > laser_max) {
+    if (verbose) {
+      Serial.print("Laser power too high, dcreasing to ");
+      Serial.println(laser_max);
+    }
     power = laser_max;
-  if (power_fan_when_laser_on && power > 0)
+  }
+  if (power_fan_when_laser_on && power > 0) {
     fan(fan_power_when_laser_on);
+  }
   laser_power = power;
   if (power == 0)
     last_laser_off = millis();
@@ -786,8 +843,13 @@ void laser(int power) {
 // Fan control
 void fan(int power) {
   analogWrite(fan_pin, power);
-  if (power > fan_max)
+  if (power > fan_max) {
+    if (verbose) {
+      Serial.print("Fan power too high, dcreasing to ");
+      Serial.println(fan_max);
+    }
     power = fan_max;
+  }
   fan_power = power;
   if (verbose) {
     Serial.print("Fan power : ");

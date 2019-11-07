@@ -11,6 +11,8 @@ struct Motor {
   int stepsPerRev = 200;
   // delay between moves, default 100
   int delayMicro = 100;
+  // multiplicator, to synchronise motors delays
+  int delayMicroRatio = 1;
   // Steps per millimeter, depends on transmition
   float steps_per_millimeter = 50;
   // case of reversed connections
@@ -52,9 +54,18 @@ struct Motor {
     this->steps_per_millimeter = steps_per_millimeter;
   }
 
+  void setDelayMicroRatio(float delayMicroRatio) {
+    this->delayMicroRatio = delayMicroRatio;
+  }
+
   // mm/min
   void setSpeed(int mm_per_minute) {
-    delayMicro = (1000 / (steps_per_millimeter / 2000 / 60))/mm_per_minute;
+    delayMicro = ((1000 / (steps_per_millimeter / 2000 / 60)) / mm_per_minute);
+  }
+
+  // mm/min
+  float getSpeed() {
+    return ((1000 / (steps_per_millimeter / 2000 / 60)) / delayMicro);
   }
 
   // µs
@@ -62,9 +73,9 @@ struct Motor {
     delayMicro = delay;
   }
 
-  // mm/min
-  float getSpeed() {
-    return (1000 / (steps_per_millimeter / 2000 / 60))/delayMicro;
+  // µs
+  int getDelay() {
+    return delayMicro;
   }
 
   boolean isMinEndStopped() {
@@ -79,17 +90,17 @@ struct Motor {
     digitalWrite(dirPin, forward xor reversed ? HIGH : LOW);
     for (long x = 0; x < steps; x++) {
       digitalWrite(stepPin, HIGH);
-      delayMicroseconds(delayMicro);
+      delayMicroseconds(delayMicro * delayMicroRatio);
       digitalWrite(stepPin, LOW);
-      delayMicroseconds(delayMicro);
+      delayMicroseconds(delayMicro * delayMicroRatio);
     }
   }
 
   void onestep(int dir) {
     digitalWrite(dirPin, dir > 0 xor reversed ? HIGH : LOW);
     digitalWrite(stepPin, HIGH);
-    delayMicroseconds(delayMicro);
+    delayMicroseconds(delayMicro * delayMicroRatio);
     digitalWrite(stepPin, LOW);
-    delayMicroseconds(delayMicro);
+    delayMicroseconds(delayMicro * delayMicroRatio);
   }
 };
