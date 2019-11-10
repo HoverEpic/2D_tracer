@@ -2,7 +2,6 @@
    Project from
    https://www.youtube.com/watch?v=opZ9RgmOIpc
 */
-#include <Adafruit_MotorShield.h>
 #include "ramps.h"
 
 #define LINE_BUFFER_LENGTH 512
@@ -28,7 +27,7 @@ int minSpeed = 500;
 int maxSpeed = 30000;
 
 // Arcs are split into many line segments.  How long are the segments (mm)?
-float MM_PER_SEGMENT = 0.1;
+float MM_PER_SEGMENT = 0.5;
 
 //fan pin D8 header
 const int fan_pin = 8;
